@@ -21,9 +21,18 @@ from manotron.schedule import (
 )
 from manotron.schemas import ExportOptions
 
-app = typer.Typer(no_args_is_help=True)
-schedule_app = typer.Typer(no_args_is_help=True)
-config_app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(
+    help="Turn invoice scans into structured SQLite rows and Excel exports.",
+    no_args_is_help=True,
+)
+schedule_app = typer.Typer(
+    help="Manage automatic recursive scans.",
+    no_args_is_help=True,
+)
+config_app = typer.Typer(
+    help="View or change local settings.",
+    no_args_is_help=True,
+)
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(config_app, name="config")
 
@@ -39,6 +48,7 @@ def init(
         typer.Option(help="Store the key without calling OpenAI first."),
     ] = False,
 ) -> None:
+    """Create the local config and SQLite database."""
     settings = load_settings() if config_path().exists() else default_settings()
     if folder:
         settings.watch_folder = str(folder.expanduser().resolve())
@@ -60,6 +70,7 @@ def init(
 def validate_key(
     api_key: Annotated[str | None, typer.Option(help="OpenAI API key. Uses config/env if omitted.")] = None,
 ) -> None:
+    """Check an OpenAI API key without running extraction."""
     settings = default_settings() if api_key else load_settings()
     key = api_key or settings.openai_api_key
     if not key:
@@ -75,6 +86,7 @@ def scan(
         typer.Option("--mock-extract", help="Use deterministic local extraction for testing."),
     ] = False,
 ) -> None:
+    """Recursively process new supported files in the configured folder."""
     summary = scan_configured_folder(mock_extract=mock_extract)
     typer.echo(
         "Scan complete: "
@@ -91,12 +103,14 @@ def export(
     date_from: Annotated[str | None, typer.Option("--from", help="Invoice date from YYYY-MM-DD.")] = None,
     date_to: Annotated[str | None, typer.Option("--to", help="Invoice date to YYYY-MM-DD.")] = None,
 ) -> None:
+    """Export stored invoice lines to an Excel workbook."""
     path = export_configured(ExportOptions(output_path=output, date_from=date_from, date_to=date_to))
     typer.echo(f"Exported: {path}")
 
 
 @config_app.command("show")
 def config_show() -> None:
+    """Show local settings with the API key hidden."""
     settings = load_settings()
     redacted = settings.model_copy()
     if redacted.openai_api_key:
@@ -106,6 +120,7 @@ def config_show() -> None:
 
 @config_app.command("set-folder")
 def config_set_folder(folder: Path) -> None:
+    """Change the folder scanned by manotron."""
     settings = load_settings()
     settings.watch_folder = str(folder.expanduser().resolve())
     save_settings(settings)
@@ -114,6 +129,7 @@ def config_set_folder(folder: Path) -> None:
 
 @config_app.command("set-model")
 def config_set_model(model: str) -> None:
+    """Change the OpenAI extraction model."""
     settings = load_settings()
     settings.openai_model = model
     save_settings(settings)
@@ -129,6 +145,7 @@ def schedule_set(
     every_hours: Annotated[int | None, typer.Option(help="Run every N hours, 1-23.")] = None,
     command: Annotated[str | None, typer.Option(help="Command cron should execute.")] = None,
 ) -> None:
+    """Install or replace the automatic scan schedule."""
     selected = [daily is not None, weekdays is not None, every_hours is not None, weekly_day is not None]
     if sum(selected) != 1:
         raise typer.BadParameter("Choose exactly one schedule option.")
@@ -149,12 +166,14 @@ def schedule_set(
 
 @schedule_app.command("clear")
 def schedule_clear() -> None:
+    """Remove the automatic scan schedule."""
     clear_scan_cron()
     typer.echo("Removed manotron cron entry.")
 
 
 @schedule_app.command("show")
 def schedule_show() -> None:
+    """Show the current automatic scan schedule."""
     entry = current_scan_cron()
     typer.echo(entry or "No manotron cron entry installed.")
 

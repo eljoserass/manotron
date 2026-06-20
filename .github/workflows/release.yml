@@ -1,0 +1,68 @@
+name: Release macOS binary
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          version: "0.11.23"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --locked
+
+      - name: Verify Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build standalone binary
+        run: scripts/build_binary.sh
+
+      - name: Verify standalone binary
+        run: |
+          ./dist/manotron --help
+          ./dist/manotron schedule set --help
+
+      - name: Prepare release files
+        run: |
+          mv dist/manotron dist/manotron-macos-arm64
+          codesign --force --sign - dist/manotron-macos-arm64
+          cd dist
+          shasum -a 256 manotron-macos-arm64 > manotron-macos-arm64.sha256
+
+      - name: Test binary installer
+        env:
+          MANOTRON_BINARY_URL: file://${{ github.workspace }}/dist/manotron-macos-arm64
+          MANOTRON_CHECKSUM_URL: file://${{ github.workspace }}/dist/manotron-macos-arm64.sha256
+          MANOTRON_BIN_DIR: ${{ runner.temp }}/manotron-bin
+          MANOTRON_SKIP_ONBOARDING: "1"
+        run: |
+          scripts/install.sh
+          "${MANOTRON_BIN_DIR}/manotron" --help
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/manotron-macos-arm64 \
+            dist/manotron-macos-arm64.sha256 \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}"
