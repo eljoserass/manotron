@@ -1,0 +1,27 @@
+[project]
+name = "manotron"
+version = "0.1.0"
+description = "Recursive invoice scanner that extracts deduction rows into SQLite and Excel."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=2.0.0",
+    "openpyxl>=3.1.5",
+    "platformdirs>=4.3.6",
+    "pydantic>=2.9.0",
+    "sqlalchemy>=2.0.36",
+    "typer>=0.16.0",
+]
+
+[project.scripts]
+manotron = "manotron.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
