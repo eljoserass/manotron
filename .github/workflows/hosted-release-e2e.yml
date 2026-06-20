@@ -1,0 +1,60 @@
+name: Hosted release end-to-end
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: macos-14
+
+    steps:
+      - name: Check out installer
+        uses: actions/checkout@v7
+
+      - name: Install latest hosted binary
+        env:
+          MANOTRON_BIN_DIR: ${{ runner.temp }}/manotron-bin
+          MANOTRON_SKIP_ONBOARDING: "1"
+        run: scripts/install.sh
+
+      - name: Validate API key
+        env:
+          OPENAI_API_KEY: ${{ secrets.MANOTRON_E2E_OPENAI_API_KEY }}
+          MANOTRON_BIN: ${{ runner.temp }}/manotron-bin/manotron
+        run: |
+          test -n "${OPENAI_API_KEY}"
+          "${MANOTRON_BIN}" validate-key
+
+      - name: Run live extraction and export
+        env:
+          OPENAI_API_KEY: ${{ secrets.MANOTRON_E2E_OPENAI_API_KEY }}
+          MANOTRON_BIN: ${{ runner.temp }}/manotron-bin/manotron
+          MANOTRON_CONFIG: ${{ runner.temp }}/manotron-e2e/config.json
+          MANOTRON_DB_PATH: ${{ runner.temp }}/manotron-e2e/manotron.sqlite3
+        run: |
+          fixture="${RUNNER_TEMP}/manotron-e2e/invoices/archive"
+          mkdir -p "${fixture}"
+          printf '%s\n' \
+            'INVOICE REFERENCE: INV-HOSTED-001' \
+            'INVOICE DATE: 2026-06-20' \
+            'PRODUCT REFERENCE: PROD-RED-42' \
+            'TOTAL QUANTITY: 5' \
+            'LOCATIONS:' \
+            'A-01 handwritten 2' \
+            'B-07 handwritten 3' \
+            > "${fixture}/invoice-001.txt"
+
+          "${MANOTRON_BIN}" init \
+            --folder "${RUNNER_TEMP}/manotron-e2e/invoices" \
+            --model gpt-5-mini
+          "${MANOTRON_BIN}" scan
+          "${MANOTRON_BIN}" export \
+            --out "${RUNNER_TEMP}/manotron-e2e/export.xlsx"
+
+          row="$(sqlite3 -separator '|' "${MANOTRON_DB_PATH}" \
+            'select i.invoice_reference_id, l.product_reference_id, l.quantity_deducted, l.locations_quantity from invoices i join invoice_lines l on l.invoice_id = i.id;')"
+          test "${row}" = 'INV-HOSTED-001|PROD-RED-42|5|A-01::2;B-07::3'
+          grep -q '"openai_api_key": null' "${MANOTRON_CONFIG}"
